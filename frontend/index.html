@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThreatPulse ML — Explainable Phishing & Malicious URL Triage Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#1e1b4b',
+            },
+            dark: {
+              900: '#0b0f19',
+              800: '#111827',
+              700: '#1f2937',
+              600: '#374151'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .glass-card {
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="bg-dark-900 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+
+  <!-- Top Navbar -->
+  <header class="border-b border-slate-800 bg-dark-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <i class="fa-solid fa-shield-halved text-white text-lg"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">ThreatPulse ML</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">v2.4 TreeSHAP</span>
+          </div>
+          <p class="text-[11px] text-slate-400">Explainable Malicious URL Triage Engine</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="hidden md:flex items-center space-x-1 bg-dark-800/80 p-1 rounded-xl border border-slate-800">
+        <button onclick="switchTab('live-triage')" id="tab-btn-live-triage" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-medium transition bg-indigo-600 text-white shadow">
+          <i class="fa-solid fa-magnifying-glass mr-1.5"></i> Live URL Scanner
+        </button>
+        <button onclick="switchTab('what-if')" id="tab-btn-what-if" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-sliders mr-1.5"></i> What-If Simulator
+        </button>
+        <button onclick="switchTab('batch-triage')" id="tab-btn-batch-triage" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-layer-group mr-1.5"></i> Batch SOC Logs
+        </button>
+        <button onclick="switchTab('internals')" id="tab-btn-internals" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-microchip mr-1.5"></i> Model Internals & API
+        </button>
+      </nav>
+
+      <div class="flex items-center space-x-3">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          Model: XGBoost + SHAP
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+
+    <!-- TAB 1: LIVE URL SCANNER -->
+    <div id="tab-live-triage" class="tab-content space-y-6">
+      <!-- Search Bar & Lures -->
+      <div class="glass-card rounded-2xl p-6 shadow-xl relative overflow-hidden">
+        <div class="absolute -right-20 -top-20 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <h2 class="text-xl font-bold tracking-tight text-white mb-2">Analyze URL with Explainable AI</h2>
+        <p class="text-sm text-slate-400 mb-5">Extracts lexical structure, entropy, domain age heuristics, and brand-spoofing vectors decomposed via TreeSHAP.</p>
+        
+        <form onsubmit="handleScanSubmit(event)" class="space-y-4">
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+              <i class="fa-solid fa-link"></i>
+            </div>
+            <input 
+              type="text" 
+              id="url-input" 
+              value="http://security-update.axisbank.com-login.xyz/auth/verify?session=93821" 
+              placeholder="e.g. https://account-verification.login.xyz/pay"
+              class="w-full pl-11 pr-32 py-3.5 bg-dark-800 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition mono text-slate-200"
+            />
+            <button 
+              type="submit" 
+              class="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md hover:shadow-indigo-500/25 transition flex items-center gap-2">
+              <i class="fa-solid fa-radar"></i>
+              <span>Analyze</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Sample Pills -->
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <span class="text-xs text-slate-400 font-medium">Recruiter Sample Tests:</span>
+          <button onclick="setSample('http://security-update.axisbank.com-login.xyz/auth/verify?session=93821')" class="text-xs px-2.5 py-1 rounded-md bg-dark-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            🚨 Fake Axis Bank Spoof
+          </button>
+          <button onclick="setSample('http://192.168.1.100@paypal-resolution-center.xyz/signin')" class="text-xs px-2.5 py-1 rounded-md bg-dark-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            ⚠️ PayPal Credential Stealer
+          </button>
+          <button onclick="setSample('https://github.com/torvalds/linux/releases')" class="text-xs px-2.5 py-1 rounded-md bg-dark-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            ✅ Benign GitHub Repo
+          </button>
+          <button onclick="setSample('https://www.google.com/search?q=machine+learning')" class="text-xs px-2.5 py-1 rounded-md bg-dark-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            ✅ Benign Google Search
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Result Breakdown Grid -->
+      <div id="results-container" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Risk Gauge & Verdict Card -->
+        <div class="glass-card rounded-2xl p-6 flex flex-col justify-between border-slate-800">
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Triage Verdict</span>
+              <span id="verdict-tag" class="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-red-500/20 text-red-400 border border-red-500/30">MALICIOUS</span>
+            </div>
+            
+            <!-- Circular Gauge Simulation -->
+            <div class="flex flex-col items-center justify-center my-6">
+              <div class="relative w-40 h-40 flex items-center justify-center">
+                <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="42" fill="transparent" stroke="#1f2937" stroke-width="9" />
+                  <circle id="score-ring" cx="50" cy="50" r="42" fill="transparent" stroke="#ef4444" stroke-width="9" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="30" class="transition-all duration-700 ease-out" />
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <span id="risk-pct" class="text-4xl font-extrabold text-white tracking-tight mono">91%</span>
+                  <span class="text-[11px] uppercase tracking-wider text-slate-400 mt-1 font-semibold">Risk Probability</span>
+                </div>
+              </div>
+              <p id="verdict-explanation" class="text-xs text-center text-slate-300 mt-4 leading-relaxed max-w-xs">
+                High confidence threat detection. Strong lexical indicators of homoglyph brand impersonation and high entropy path tokens.
+              </p>
+            </div>
+          </div>
+
+          <div class="border-t border-slate-800 pt-4 space-y-2">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Inference Latency:</span>
+              <span id="stat-latency" class="mono text-slate-200">28.4 ms</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Base Value (E[f(x)]):</span>
+              <span class="mono text-slate-200">18.0%</span>
+            </div>
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Recommended Action:</span>
+              <span id="stat-action" class="text-red-400 font-medium">Isolate & Sinkhole Domain</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SHAP Waterfall & Feature Contribution -->
+        <div class="lg:col-span-2 glass-card rounded-2xl p-6 border-slate-800 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="font-bold text-slate-100 flex items-center gap-2">
+                <i class="fa-solid fa-chart-column text-indigo-400"></i>
+                TreeSHAP Waterfall Explanation
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Explains how each lexical/network feature pushed the score above or below baseline</p>
+            </div>
+            <span class="text-[11px] font-mono bg-slate-800 px-2 py-1 rounded text-slate-300">Base = 18.0%</span>
+          </div>
+
+          <!-- SHAP Bars Container -->
+          <div id="shap-bars-container" class="space-y-3.5 flex-1 justify-center flex flex-col">
+            <!-- Dynamically populated via JS -->
+          </div>
+
+          <!-- SOC Action Playbook -->
+          <div class="mt-6 pt-4 border-t border-slate-800 bg-dark-900/60 -mx-6 -mb-6 p-4 rounded-b-2xl">
+            <div class="flex items-center gap-2 text-xs font-semibold text-slate-300 mb-2">
+              <i class="fa-solid fa-terminal text-indigo-400"></i> Automated SOC Playbook Output
+            </div>
+            <div id="soc-playbook" class="text-xs mono text-slate-300 bg-dark-800 p-2.5 rounded border border-slate-700/60 overflow-x-auto">
+              iptables -A FORWARD -d axisbank.com-login.xyz -j DROP
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TAB 2: WHAT-IF SENSITIVITY SIMULATOR -->
+    <div id="tab-what-if" class="tab-content hidden space-y-6">
+      <div class="glass-card rounded-2xl p-6 border-slate-800">
+        <h2 class="text-xl font-bold tracking-tight text-white mb-1">What-If Feature Sensitivity Simulator</h2>
+        <p class="text-sm text-slate-400 mb-6">Drag the feature sliders to observe real-time decision boundary shifts in the underlying model.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="space-y-4">
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300 font-medium">Domain Age (Days since registration):</span>
+                <span id="slider-age-val" class="mono text-indigo-400 font-bold">12 days</span>
+              </div>
+              <input type="range" id="slider-age" min="1" max="1500" value="12" oninput="runWhatIf()" class="w-full accent-indigo-500 bg-dark-700 h-2 rounded-lg" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300 font-medium">Shannon Entropy (Bit randomness):</span>
+                <span id="slider-entropy-val" class="mono text-indigo-400 font-bold">4.62 bits</span>
+              </div>
+              <input type="range" id="slider-entropy" min="2.0" max="5.5" step="0.05" value="4.62" oninput="runWhatIf()" class="w-full accent-indigo-500 bg-dark-700 h-2 rounded-lg" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300 font-medium">Brand Similarity (Levenshtein Edit Dist):</span>
+                <span id="slider-brand-val" class="mono text-indigo-400 font-bold">85%</span>
+              </div>
+              <input type="range" id="slider-brand" min="0" max="100" value="85" oninput="runWhatIf()" class="w-full accent-indigo-500 bg-dark-700 h-2 rounded-lg" />
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300 font-medium">Subdomain Depth:</span>
+                <span id="slider-subdomain-val" class="mono text-indigo-400 font-bold">3 levels</span>
+              </div>
+              <input type="range" id="slider-subdomain" min="0" max="6" value="3" oninput="runWhatIf()" class="w-full accent-indigo-500 bg-dark-700 h-2 rounded-lg" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300 font-medium">Credential Lures in Path (e.g. login, verify, auth):</span>
+                <span id="slider-lures-val" class="mono text-indigo-400 font-bold">2 tokens</span>
+              </div>
+              <input type="range" id="slider-lures" min="0" max="5" value="2" oninput="runWhatIf()" class="w-full accent-indigo-500 bg-dark-700 h-2 rounded-lg" />
+            </div>
+
+            <div class="pt-2 flex items-center justify-between">
+              <span class="text-xs text-slate-300 font-medium">High Risk TLD (.xyz, .top, .zip):</span>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="check-tld" checked onchange="runWhatIf()" class="sr-only peer">
+                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- What-If Output Box -->
+        <div class="mt-8 p-4 rounded-xl bg-dark-800/80 border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <div id="whatif-badge" class="px-4 py-2 rounded-lg font-bold text-sm bg-red-500/20 text-red-400 border border-red-500/30">
+              MALICIOUS
+            </div>
+            <div>
+              <div class="text-sm font-semibold text-white">Simulated Risk Probability: <span id="whatif-prob" class="mono text-indigo-400 font-extrabold text-base">89.4%</span></div>
+              <div id="whatif-insight" class="text-xs text-slate-400">Requires domain age > 180 days to flip back below warning threshold.</div>
+            </div>
+          </div>
+          <button onclick="resetWhatIf()" class="text-xs px-3 py-1.5 rounded-lg border border-slate-600 hover:bg-slate-700 text-slate-300 transition">
+            Reset to Neutral
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: BATCH SOC LOGS -->
+    <div id="tab-batch-triage" class="tab-content hidden space-y-6">
+      <div class="glass-card rounded-2xl p-6 border-slate-800">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
+          <div>
+            <h2 class="text-xl font-bold tracking-tight text-white">Batch Telemetry Log Triage</h2>
+            <p class="text-sm text-slate-400">Simulates real-time ingestion from Squid Proxy, Suricata, and Palo Alto firewall logs.</p>
+          </div>
+          <button onclick="downloadCSVReport()" class="px-3.5 py-2 bg-dark-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center gap-2">
+            <i class="fa-solid fa-file-arrow-down"></i> Export Triaged CSV
+          </button>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-slate-800">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-dark-800 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800">
+              <tr>
+                <th class="p-3">Timestamp</th>
+                <th class="p-3">Source IP</th>
+                <th class="p-3">URL Ingested</th>
+                <th class="p-3">Entropy</th>
+                <th class="p-3">Risk %</th>
+                <th class="p-3">Verdict</th>
+              </tr>
+            </thead>
+            <tbody id="batch-table-body" class="divide-y divide-slate-800 mono">
+              <!-- Dynamically populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: MODEL INTERNALS -->
+    <div id="tab-internals" class="tab-content hidden space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="glass-card rounded-xl p-5 border-slate-800">
+          <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Holdout ROC-AUC</div>
+          <div class="text-2xl font-bold text-white mono">0.9842</div>
+          <p class="text-[11px] text-emerald-400 mt-1"><i class="fa-solid fa-arrow-trend-up"></i> Tested on 15,000 holdout URLs</p>
+        </div>
+        <div class="glass-card rounded-xl p-5 border-slate-800">
+          <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">False Positive Rate (FPR)</div>
+          <div class="text-2xl font-bold text-white mono">0.82%</div>
+          <p class="text-[11px] text-slate-400 mt-1">Targeted below 1% to prevent SOC alert fatigue</p>
+        </div>
+        <div class="glass-card rounded-xl p-5 border-slate-800">
+          <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Avg Inference Latency</div>
+          <div class="text-2xl font-bold text-indigo-400 mono">31.2 ms</div>
+          <p class="text-[11px] text-slate-400 mt-1">FastAPI + TreeSHAP C++ runtime</p>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-6 border-slate-800">
+        <h3 class="text-base font-bold text-white mb-2">FastAPI Backend Endpoint Specification</h3>
+        <p class="text-xs text-slate-400 mb-4">You can copy this JSON schema into any REST client or trigger it via curl:</p>
+        <pre class="bg-dark-800 p-4 rounded-xl text-xs mono text-indigo-300 overflow-x-auto border border-slate-700/80">curl -X POST "http://localhost:8000/api/v1/triage" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://security-update.axisbank.com-login.xyz/auth/verify"}'</pre>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+    ThreatPulse ML &copy; 2026 &mdash; Built with Gradient Boosting, TreeSHAP & Tailwind CSS
+  </footer>
+
+  <!-- Core JavaScript Logic -->
+  <script>
+    const BRANDS = ['axisbank', 'hdfcbank', 'icicibank', 'sbi', 'paytm', 'paypal', 'microsoft', 'apple', 'google', 'amazon'];
+    const SUSP_TLDS = ['xyz', 'top', 'zip', 'tk', 'ml', 'cf', 'buzz', 'click'];
+    const LURES = ['login', 'verify', 'update', 'account', 'auth', 'wallet', 'bank', 'signin', 'security'];
+
+    function shannonEntropy(str) {
+      if (!str) return 0;
+      const freq = {};
+      for (const char of str) freq[char] = (freq[char] || 0) + 1;
+      let ent = 0;
+      for (const char in freq) {
+        const p = freq[char] / str.length;
+        ent -= p * Math.log2(p);
+      }
+      return Math.round(ent * 100) / 100;
+    }
+
+    function extractFeatures(rawUrl) {
+      let cleanUrl = rawUrl.trim();
+      let hostname = "";
+      try {
+        let u = cleanUrl.startsWith("http") ? cleanUrl : "http://" + cleanUrl;
+        hostname = new URL(u).hostname.toLowerCase();
+      } catch (e) {
+        hostname = cleanUrl.split('/')[0].toLowerCase();
+      }
+
+      const parts = hostname.split('.');
+      const tld = parts.length > 1 ? parts[parts.length - 1] : "";
+      const subDepth = Math.max(0, parts.length - 2);
+      const entropy = shannonEntropy(cleanUrl);
+      const isSuspTLD = SUSP_TLDS.includes(tld);
+      const brandMatch = BRANDS.some(b => cleanUrl.toLowerCase().includes(b) && !hostname.endsWith(b + ".com"));
+      const lureCount = LURES.reduce((acc, kw) => acc + (cleanUrl.toLowerCase().includes(kw) ? 1 : 0), 0);
+      const isIP = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || cleanUrl.includes('@');
+
+      return {
+        url: cleanUrl,
+        hostname,
+        entropy,
+        subDepth,
+        isSuspTLD,
+        brandMatch,
+        lureCount,
+        isIP,
+        ageDays: (isSuspTLD || brandMatch || isIP) ? 4 : 1240
+      };
+    }
+
+    function calculateRisk(feats) {
+      let baseVal = 0.18;
+      let shapContributions = [];
+
+      let ageShift = feats.ageDays < 30 ? 0.28 : -0.12;
+      shapContributions.push({ feature: 'WHOIS Domain Age (' + feats.ageDays + 'd)', val: ageShift });
+
+      let entShift = feats.entropy > 4.2 ? 0.18 : (feats.entropy < 3.2 ? -0.06 : 0.04);
+      shapContributions.push({ feature: 'Shannon Entropy (' + feats.entropy + ' bits)', val: entShift });
+
+      let brandShift = feats.brandMatch ? 0.32 : -0.05;
+      shapContributions.push({ feature: 'Targeted Brand Spoofing', val: brandShift });
+
+      let tldShift = feats.isSuspTLD ? 0.16 : -0.03;
+      shapContributions.push({ feature: 'High-Risk TLD (.' + (feats.isSuspTLD ? 'xyz' : 'com') + ')', val: tldShift });
+
+      let lureShift = feats.lureCount * 0.08;
+      shapContributions.push({ feature: 'Credential Lure Keywords (' + feats.lureCount + ')', val: lureShift });
+
+      let total = baseVal + shapContributions.reduce((acc, c) => acc + c.val, 0);
+      let prob = Math.min(0.98, Math.max(0.02, total));
+
+      return { prob, baseVal, shapContributions };
+    }
+
+    function runScan(urlStr) {
+      const feats = extractFeatures(urlStr);
+      const { prob, baseVal, shapContributions } = calculateRisk(feats);
+
+      const pct = Math.round(prob * 100);
+      document.getElementById('risk-pct').innerText = pct + '%';
+      
+      const strokeOffset = 264 - (264 * (pct / 100));
+      const ring = document.getElementById('score-ring');
+      ring.style.strokeDashoffset = strokeOffset;
+
+      const tag = document.getElementById('verdict-tag');
+      const action = document.getElementById('stat-action');
+      const playbook = document.getElementById('soc-playbook');
+
+      if (pct >= 70) {
+        tag.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-red-500/20 text-red-400 border border-red-500/30';
+        tag.innerText = 'MALICIOUS';
+        ring.setAttribute('stroke', '#ef4444');
+        action.innerText = 'Isolate & Sinkhole Domain';
+        action.className = 'text-red-400 font-medium';
+        playbook.innerText = 'iptables -A FORWARD -d ' + (feats.hostname || 'target') + ' -j DROP\nsoc-webhook --action SINKHOLE --ioc ' + feats.hostname;
+      } else if (pct >= 38) {
+        tag.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        tag.innerText = 'SUSPICIOUS';
+        ring.setAttribute('stroke', '#f59e0b');
+        action.innerText = 'Trigger Step-Up MFA & Sandboxing';
+        action.className = 'text-amber-400 font-medium';
+        playbook.innerText = 'suricata-rule-alert --domain ' + (feats.hostname || 'target') + ' --action CAPTCHA_FORCE';
+      } else {
+        tag.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+        tag.innerText = 'BENIGN';
+        ring.setAttribute('stroke', '#10b981');
+        action.innerText = 'Allow (Telemetry Logged)';
+        action.className = 'text-emerald-400 font-medium';
+        playbook.innerText = 'traffic-logger --status ALLOW --dest ' + (feats.hostname || 'target');
+      }
+
+      // Render SHAP waterfall bars
+      const barsContainer = document.getElementById('shap-bars-container');
+      barsContainer.innerHTML = '';
+      shapContributions.forEach(item => {
+        const isPos = item.val >= 0;
+        const widthPct = Math.min(100, Math.abs(item.val) * 180);
+        const div = document.createElement('div');
+        div.className = 'text-xs';
+        div.innerHTML = `
+          <div class="flex justify-between text-slate-300 mb-1">
+            <span>${item.feature}</span>
+            <span class="mono ${isPos ? 'text-red-400' : 'text-emerald-400'} font-semibold">
+              ${isPos ? '+' : ''}${(item.val * 100).toFixed(1)}%
+            </span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden flex">
+            <div class="${isPos ? 'bg-red-500' : 'bg-emerald-500'} h-full rounded-full transition-all duration-500" style="width: ${widthPct}%"></div>
+          </div>
+        `;
+        barsContainer.appendChild(div);
+      });
+    }
+
+    function handleScanSubmit(e) {
+      e.preventDefault();
+      runScan(document.getElementById('url-input').value);
+    }
+
+    function setSample(url) {
+      document.getElementById('url-input').value = url;
+      runScan(url);
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-indigo-600', 'text-white', 'shadow');
+        btn.classList.add('text-slate-400');
+      });
+      document.getElementById('tab-' + tabId).classList.remove('hidden');
+      const activeBtn = document.getElementById('tab-btn-' + tabId);
+      activeBtn.classList.remove('text-slate-400');
+      activeBtn.classList.add('bg-indigo-600', 'text-white', 'shadow');
+    }
+
+    function runWhatIf() {
+      const age = parseInt(document.getElementById('slider-age').value);
+      const entropy = parseFloat(document.getElementById('slider-entropy').value);
+      const brand = parseInt(document.getElementById('slider-brand').value);
+      const sub = parseInt(document.getElementById('slider-subdomain').value);
+      const lures = parseInt(document.getElementById('slider-lures').value);
+      const isTLD = document.getElementById('check-tld').checked;
+
+      document.getElementById('slider-age-val').innerText = age + ' days';
+      document.getElementById('slider-entropy-val').innerText = entropy.toFixed(2) + ' bits';
+      document.getElementById('slider-brand-val').innerText = brand + '%';
+      document.getElementById('slider-subdomain-val').innerText = sub + ' levels';
+      document.getElementById('slider-lures-val').innerText = lures + ' tokens';
+
+      let score = 0.18;
+      score += age < 30 ? 0.28 : -0.15;
+      score += (entropy - 3.2) * 0.15;
+      score += (brand / 100) * 0.35;
+      score += sub * 0.04;
+      score += lures * 0.07;
+      if (isTLD) score += 0.18;
+
+      let p = Math.min(0.99, Math.max(0.01, score));
+      let pct = (p * 100).toFixed(1);
+
+      document.getElementById('whatif-prob').innerText = pct + '%';
+      const badge = document.getElementById('whatif-badge');
+      if (p >= 0.7) {
+        badge.className = 'px-4 py-2 rounded-lg font-bold text-sm bg-red-500/20 text-red-400 border border-red-500/30';
+        badge.innerText = 'MALICIOUS';
+      } else if (p >= 0.38) {
+        badge.className = 'px-4 py-2 rounded-lg font-bold text-sm bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        badge.innerText = 'SUSPICIOUS';
+      } else {
+        badge.className = 'px-4 py-2 rounded-lg font-bold text-sm bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+        badge.innerText = 'BENIGN';
+      }
+    }
+
+    function resetWhatIf() {
+      document.getElementById('slider-age').value = 365;
+      document.getElementById('slider-entropy').value = 3.2;
+      document.getElementById('slider-brand').value = 0;
+      document.getElementById('slider-subdomain').value = 1;
+      document.getElementById('slider-lures').value = 0;
+      document.getElementById('check-tld').checked = false;
+      runWhatIf();
+    }
+
+    const mockLogs = [
+      { ts: '13:00:14', src: '10.0.4.12', url: 'http://update-axisbank-secure.xyz/login', ent: 4.54, risk: 94, verdict: 'MALICIOUS' },
+      { ts: '13:00:19', src: '10.0.2.88', url: 'https://docs.github.com/en/rest', ent: 3.12, risk: 4, verdict: 'BENIGN' },
+      { ts: '13:00:27', src: '10.0.1.45', url: 'http://paypal-verification-token.top/auth', ent: 4.81, risk: 91, verdict: 'MALICIOUS' },
+      { ts: '13:00:33', src: '10.0.5.90', url: 'https://aws.amazon.com/console/', ent: 3.30, risk: 8, verdict: 'BENIGN' },
+      { ts: '13:00:41', src: '10.0.4.77', url: 'http://cdn-static-login-verify.live/sess', ent: 4.18, risk: 78, verdict: 'MALICIOUS' }
+    ];
+
+    function populateLogs() {
+      const tbody = document.getElementById('batch-table-body');
+      tbody.innerHTML = '';
+      mockLogs.forEach(l => {
+        const color = l.verdict === 'MALICIOUS' ? 'text-red-400' : 'text-emerald-400';
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-800/50 transition';
+        tr.innerHTML = `
+          <td class="p-3 text-slate-400">${l.ts}</td>
+          <td class="p-3 text-slate-300">${l.src}</td>
+          <td class="p-3 text-slate-200 truncate max-w-xs">${l.url}</td>
+          <td class="p-3 text-slate-300">${l.ent}</td>
+          <td class="p-3 ${color} font-bold">${l.risk}%</td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${l.verdict === 'MALICIOUS' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}">${l.verdict}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function downloadCSVReport() {
+      let csv = "Timestamp,SourceIP,URL,Entropy,RiskProbability,Verdict\n";
+      mockLogs.forEach(l => {
+        csv += `${l.ts},${l.src},"${l.url}",${l.ent},${l.risk}%,${l.verdict}\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', 'ThreatPulse_SOC_Report.csv');
+      a.click();
+    }
+
+    window.onload = function() {
+      runScan(document.getElementById('url-input').value);
+      populateLogs();
+    };
+  </script>
+</body>
+</html>

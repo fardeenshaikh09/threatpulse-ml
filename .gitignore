@@ -1,0 +1,7 @@
+# Python / Virtual Environment
+backend/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pkl
+.DS_Store
